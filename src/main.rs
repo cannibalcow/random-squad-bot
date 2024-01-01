@@ -160,7 +160,7 @@ fn parse_command(msg: &Message, users: &Vec<User>) -> Result<Commands, ParseErro
     let args: Vec<String> = msg.content.split(" ").map(|f| f.to_string()).collect();
 
     if args.len() == 1 {
-        let help_text = String::from("I will fetch all users in voice chat and randomize teams.\n /sq <duo|trio|squad> !<username to exclude>\nExclude nicks are lowercase.");
+        let help_text = String::from("I will fetch all users in voice chat and randomize teams.\n !sq <duo|trio|squad> !<username to exclude>\nExclude nicks are lowercase.");
         return Ok(Commands::HelpCommand(help_text));
     }
 
