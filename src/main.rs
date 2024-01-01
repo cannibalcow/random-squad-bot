@@ -157,7 +157,7 @@ impl FromStr for TeamSetup {
 }
 
 fn parse_command(msg: &Message, users: &Vec<User>) -> Result<Commands, ParseError> {
-    let args: Vec<String> = msg.content.split(" ").map(|f| f.to_string()).collect();
+    let args: Vec<String> = msg.content.split(' ').map(|f| f.to_string()).collect();
 
     if args.len() == 1 {
         let help_text = String::from("I will fetch all users in voice chat and randomize teams.\n !sq <duo|trio|squad> !<username to exclude>\nExclude nicks are lowercase.");
@@ -194,9 +194,9 @@ fn parse_command(msg: &Message, users: &Vec<User>) -> Result<Commands, ParseErro
     println!("Parsed: ");
     println!("{:?}", cmd);
 
-    return Ok(Commands::SquadCommand(cmd));
+    Ok(Commands::SquadCommand(cmd))
 }
 
 fn get_token(path: &str) -> String {
-    return read_to_string(path).unwrap();
+    read_to_string(path).unwrap()
 }
