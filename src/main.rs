@@ -1,7 +1,11 @@
+use chrono::Utc;
 use core::result::Result;
 use rand::prelude::*;
+use serenity::cache::Settings;
+use std::fmt::Display;
 use std::fs::read_to_string;
 use std::str::FromStr;
+use std::time::Duration;
 
 use serenity::all::User;
 use serenity::async_trait;
@@ -22,37 +26,59 @@ impl EventHandler for Handler {}
 #[tokio::main]
 async fn main() {
     let framework = StandardFramework::new().group(&GENERAL_GROUP);
-    framework.configure(Configuration::new().prefix("!")); // set the bot's prefix to "~"
+    framework.configure(Configuration::new().prefix("!"));
+
+    info("Booting up bot");
 
     // Login with a bot token from the environment
     let token = get_token(".token");
     let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
+
+    let mut cache_settings = Settings::default();
+    cache_settings.time_to_live = Duration::new(10, 0);
+    cache_settings.cache_guilds = true;
+    cache_settings.cache_users = true;
+
     let mut client = Client::builder(token, intents)
         .event_handler(Handler)
         .framework(framework)
+        .cache_settings(cache_settings)
         .await
         .expect("Error creating client");
 
+    info("Bot up and running");
+
     // start listening for events by starting a single shard
     if let Err(why) = client.start().await {
-        println!("An error occurred while running the client: {:?}", why);
+        info(&format!(
+            "An error occurred while running the client: {:?}",
+            why
+        ));
     }
 }
 
 #[command]
 async fn sq(ctx: &Context, msg: &Message) -> CommandResult {
-    println!("MSG: {:?} Channel Id: {:?}", msg.content, msg.channel_id);
+    info(&format!(
+        "Author: {:?} Msg: {:?} Channel Id: {:?}",
+        msg.author
+            .global_name
+            .clone()
+            .unwrap_or(String::from("Unknown")),
+        msg.content,
+        msg.channel_id
+    ));
 
-    let x = msg.guild(&ctx.cache).unwrap().clone();
+    let guild = msg.guild(&ctx.cache).unwrap().clone();
 
     let user_id = msg.author.id;
 
-    let channel_id = match x.voice_states.get(&user_id) {
+    let channel_id = match guild.voice_states.get(&user_id) {
         Some(vc) => vc.channel_id,
         None => return Ok(()),
     };
 
-    let users: Vec<User> = x
+    let users: Vec<User> = guild
         .voice_states
         .iter()
         .filter(|(_k, v)| v.channel_id == channel_id)
@@ -60,20 +86,19 @@ async fn sq(ctx: &Context, msg: &Message) -> CommandResult {
         .map(|f| f.clone())
         .collect();
 
-    for u in &users {
-        println!("User: {}", u.name);
-    }
-
-    println!("========================================");
-
-    match parse_command(&msg, &users) {
+    match parse_command(msg, &users) {
         Ok(v) => match v {
-            Commands::SquadCommand(cmd) => msg.reply(ctx, cmd.create_teams()).await?,
+            Commands::SquadCommand(cmd) => {
+                info(&format!("{:?}", cmd));
+                let new_team = cmd.create_teams();
+
+                msg.reply(ctx, new_team).await?
+            }
             Commands::HelpCommand(txt) => msg.reply(ctx, txt).await?,
         },
 
         Err(e) => {
-            eprintln!("ERROR: {:?}", e);
+            error(format!("{:?}", e).as_str());
             msg.reply(
                 ctx,
                 "Jag fattar inte vad du skriver eller så är jag dum i huvudet. Försök igen.",
@@ -109,6 +134,16 @@ struct SquadCmd {
     users: Vec<String>,
 }
 
+impl Display for SquadCmd {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Team Setup: {:?} Users: {:?}",
+            self.team_setup, self.users
+        )
+    }
+}
+
 impl SquadCmd {
     fn create_teams(&self) -> String {
         let mut rng = thread_rng();
@@ -119,21 +154,21 @@ impl SquadCmd {
 
         let team_size = match self.team_setup {
             TeamSetup::Duo => {
-                msg.push_str("-- Duos --\n");
+                msg.push_str("-- **Duos** --\n");
                 2
             }
             TeamSetup::Trio => {
-                msg.push_str("-- Trios --\n");
+                msg.push_str("-- **Trios** --\n");
                 3
             }
             TeamSetup::Squad => {
-                msg.push_str("-- Squads --\n");
+                msg.push_str("-- **Squads** --\n");
                 4
             }
         };
 
         for (i, team) in teams.chunks(team_size).enumerate() {
-            msg.push_str(format!("{}. {}\n", i + 1, team.join(", ")).as_str())
+            msg.push_str(format!("**{}**. {}\n", i + 1, team.join(", ")).as_str())
         }
 
         msg
@@ -156,7 +191,7 @@ impl FromStr for TeamSetup {
     }
 }
 
-fn parse_command(msg: &Message, users: &Vec<User>) -> Result<Commands, ParseError> {
+fn parse_command(msg: &Message, users: &[User]) -> Result<Commands, ParseError> {
     let args: Vec<String> = msg.content.split(' ').map(|f| f.to_string()).collect();
 
     if args.len() == 1 {
@@ -171,32 +206,52 @@ fn parse_command(msg: &Message, users: &Vec<User>) -> Result<Commands, ParseErro
 
     let exclude: Vec<String> = args
         .iter()
-        .filter(|f| f.to_string().starts_with("!") && f.to_string() != "!sq")
-        .map(|f| f.clone())
+        .skip(1)
+        .filter(|f| f.to_string().starts_with('!'))
         .map(|user| user.chars().skip(1).collect())
         .collect();
 
-    println!("Exludes users: {:?}", exclude);
+    info(&format!("Exludes users: {:?}", exclude));
 
     let all_users = users
         .iter()
         .map(|u| u.name.to_string())
         .collect::<Vec<String>>();
 
-    let users = all_users
+    info(&format!("Voice users: {:?}", all_users));
+
+    let mut users: Vec<String> = all_users
         .iter()
         .filter(|user| !exclude.contains(user))
         .cloned()
         .collect();
 
-    let cmd = SquadCmd { team_setup, users };
+    let mut extra_users: Vec<String> = args
+        .iter()
+        .skip(2)
+        .filter(|f| !f.starts_with('!'))
+        .map(|f| f.to_string())
+        .collect();
 
-    println!("Parsed: ");
-    println!("{:?}", cmd);
+    info(&format!("Extra users: {:?}", extra_users));
+
+    users.append(&mut extra_users);
+
+    let cmd = SquadCmd { team_setup, users };
 
     Ok(Commands::SquadCommand(cmd))
 }
 
 fn get_token(path: &str) -> String {
     read_to_string(path).unwrap()
+}
+
+fn info(msg: &str) {
+    let now = Utc::now();
+    println!("| {} | INFO | {}", now, msg)
+}
+
+fn error(msg: &str) {
+    let now = Utc::now();
+    println!("| {} | ERROR | {}", now, msg)
 }
