@@ -35,14 +35,13 @@ async fn main() {
     let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
 
     let mut cache_settings = Settings::default();
-    cache_settings.time_to_live = Duration::new(10, 0);
+    cache_settings.time_to_live = Duration::new(1, 0);
     cache_settings.cache_guilds = true;
     cache_settings.cache_users = true;
 
     let mut client = Client::builder(token, intents)
         .event_handler(Handler)
         .framework(framework)
-        .cache_settings(cache_settings)
         .await
         .expect("Error creating client");
 
